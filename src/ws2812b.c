@@ -1,13 +1,63 @@
+#include <stdint.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 
 #include "ws2812b.h"
+#include <wiringPi.h>
+
+#define BCM2708_PERI_BASE        0x20000000
+#define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO controller */
+
+#define PAGE_SIZE (4*1024)
+#define BLOCK_SIZE (4*1024)
+
+#define GPIO_SET *(gpio + 7)  // sets bits which are 1 ignores bits which are 0
+#define GPIO_CLR *(gpio + 10) // clears bits which are 1 ignores bits which are 0
+
+
+void setup_io() {
+    int mem_fd;
+    void *gpio_map;
+
+    if ((mem_fd = open("/dev/mem", O_RDWR | O_SYNC) ) < 0) {
+        perror("can't open /dev/mem");
+        exit(-1);
+    }
+
+    gpio_map = mmap(
+        NULL,             // Any address in our space will do
+        BLOCK_SIZE,       // Map length
+        PROT_READ | PROT_WRITE, // Enable reading & writing to mapped memory
+        MAP_SHARED,       // Shared with other processes
+        mem_fd,           // File to map
+        GPIO_BASE         // Offset to GPIO peripheral
+    );
+
+    close(mem_fd); // No need to keep mem_fd open after mmap
+
+    if (gpio_map == MAP_FAILED) {
+        perror("mmap error");
+        exit(-1);
+    }
+
+    gpio = (volatile unsigned *)gpio_map;
+}
+
+void setup_gpio_output(int pin) {
+    int reg = pin / 10;
+    int shift = (pin % 10) * 3;
+    gpio[reg] = (gpio[reg] & ~(7 << shift)) | (1 << shift);
+}
 
 static inline void send_zero(uint16_t pin) {
-  digitalWrite(pin,HIGH);
+  GPIO_SET = 1 << pin; // Set pin high
 
   // +300ns
   __asm__ volatile("nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n");
 
-  digitalWrite(pin,LOW);; // 120ns
+  GPIO_CLR = 1 << pin; 
 
   // +680ns
   __asm__ volatile("nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n");
@@ -16,14 +66,14 @@ static inline void send_zero(uint16_t pin) {
 }
 
 static inline void send_one(uint16_t pin) {
-  digitalWrite(pin,HIGH); // 120ns
+  GPIO_SET = 1 << pin;
 
   // +680ns
   __asm__ volatile("nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n");
   __asm__ volatile("nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n");
   __asm__ volatile("nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop");
 
-  digitalWrite(pin,LOW); // 120ns
+  GPIO_CLR = 1 << pin; 
 
   // +300ns
   __asm__ volatile("nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n");

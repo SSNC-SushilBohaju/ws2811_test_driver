@@ -1,7 +1,7 @@
 # Be silent per default, but 'make V=1' will show all compiler calls.
 ifneq ($(V),1)
-Q		:= @
-NULL		:= 2>/dev/null
+Q       := @
+NULL    := 2>/dev/null
 endif
 
 SRC_DIR     = src
@@ -12,90 +12,75 @@ BINARY = firmware
 ###############################################################################
 # Basic Device Setup
 
-# These are not required for Raspberry Pi
-# LIBNAME			= opencm3_stm32f4
-# DEFS				+= -DSTM32F4
-# FP_FLAGS		?= -mfloat-abi=hard -mfpu=fpv4-sp-d16
-# ARCH_FLAGS	= -mthumb -mcpu=cortex-m4 $(FP_FLAGS)
-
 ###############################################################################
 # Linkerscript
 
 # Linker script and libraries not required for Raspberry Pi
-# LDSCRIPT = linkerscript.ld
-# LDLIBS		+= -l$(LIBNAME)
-# LDFLAGS		+= -L$(OPENCM3_DIR)/lib
 
 ###############################################################################
 # Includes
 
 # Include directories
-DEFS		+= -I$(INC_DIR)
+DEFS        += -I$(INC_DIR)
 
 ###############################################################################
 # Executables
 
-PREFIX		?= arm-linux-gnueabihf-
-
-CC		:= $(PREFIX)gcc
-CXX		:= $(PREFIX)g++
-LD		:= $(PREFIX)gcc
-AR		:= $(PREFIX)ar
-AS		:= $(PREFIX)as
-OBJCOPY		:= $(PREFIX)objcopy
-OBJDUMP		:= $(PREFIX)objdump
-GDB		:= $(PREFIX)gdb
-OPT		:= -Os
-DEBUG		:= -ggdb3
-CSTD		?= -std=c99
+CC      := gcc
+CXX     := g++
+LD      := gcc
+AR      := ar
+AS      := as
+OBJCOPY     := objcopy
+OBJDUMP     := objdump
+GDB     := gdb
+OPT     := -Os
+DEBUG       := -ggdb3
+CSTD        ?= -std=c99
 
 ###############################################################################
 # Source files
 
-OBJS		+= $(SRC_DIR)/$(BINARY).o
-OBJS		+= $(SRC_DIR)/core/system.o
-OBJS		+= $(SRC_DIR)/ws2812b.o
+OBJS        += $(SRC_DIR)/$(BINARY).o
+OBJS        += $(SRC_DIR)/core/system.o
+OBJS        += $(SRC_DIR)/ws2812b.o
 
 ###############################################################################
 # C flags
 
-TGT_CFLAGS	+= $(OPT) $(CSTD) $(DEBUG)
-# TGT_CFLAGS	+= $(ARCH_FLAGS)
-TGT_CFLAGS	+= -Wextra -Wshadow -Wimplicit-function-declaration
-TGT_CFLAGS	+= -Wredundant-decls -Wmissing-prototypes -Wstrict-prototypes
-TGT_CFLAGS	+= -fno-common -ffunction-sections -fdata-sections
+TGT_CFLAGS  += $(OPT) $(CSTD) $(DEBUG)
+TGT_CFLAGS  += -Wextra -Wshadow -Wimplicit-function-declaration
+TGT_CFLAGS  += -Wredundant-decls -Wmissing-prototypes -Wstrict-prototypes
+TGT_CFLAGS  += -fno-common -ffunction-sections -fdata-sections
 
 ###############################################################################
 # C++ flags
 
-TGT_CXXFLAGS	+= $(OPT) $(CXXSTD) $(DEBUG)
-# TGT_CXXFLAGS	+= $(ARCH_FLAGS)
-TGT_CXXFLAGS	+= -Wextra -Wshadow -Wredundant-decls  -Weffc++
-TGT_CXXFLAGS	+= -fno-common -ffunction-sections -fdata-sections
+TGT_CXXFLAGS    += $(OPT) $(CXXSTD) $(DEBUG)
+TGT_CXXFLAGS    += -Wextra -Wshadow -Wredundant-decls  -Weffc++
+TGT_CXXFLAGS    += -fno-common -ffunction-sections -fdata-sections
 
 ###############################################################################
 # C & C++ preprocessor common flags
 
-TGT_CPPFLAGS	+= -MD
-TGT_CPPFLAGS	+= -Wall -Wundef
-TGT_CPPFLAGS	+= $(DEFS)
+TGT_CPPFLAGS    += -MD
+TGT_CPPFLAGS    += -Wall -Wundef
+TGT_CPPFLAGS    += $(DEFS)
 
 ###############################################################################
 # Linker flags
 
-TGT_LDFLAGS		+= --static -nostartfiles
-# TGT_LDFLAGS		+= -T$(LDSCRIPT)
-TGT_LDFLAGS		+= $(DEBUG)
-TGT_LDFLAGS		+= -Wl,-Map=$(*).map -Wl,--cref
-TGT_LDFLAGS		+= -Wl,--gc-sections
+TGT_LDFLAGS     += $(DEBUG)
+TGT_LDFLAGS     += -Wl,-Map=$(*).map -Wl,--cref
+TGT_LDFLAGS     += -Wl,--gc-sections
 ifeq ($(V),99)
-TGT_LDFLAGS		+= -Wl,--print-gc-sections
+TGT_LDFLAGS     += -Wl,--print-gc-sections
 endif
 
 ###############################################################################
 # Used libraries
 
-LDLIBS		+= -Wl,--start-group -lc -lgcc -lnosys -Wl,--end-group
+LDLIBS      += -pthread -lm -lrt
 
 ###############################################################################
 ###############################################################################
@@ -166,7 +151,6 @@ print-%:
 clean:
 	@#printf "  CLEAN\n"
 	$(Q)$(RM) $(GENERATED_BINARIES) generated.* $(OBJS) $(OBJS:%.o=%.d)
-
 
 .PHONY: images clean elf bin hex srec list
 

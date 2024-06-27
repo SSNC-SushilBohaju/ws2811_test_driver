@@ -1,13 +1,13 @@
-#include <wiringPi.h>
+
 #include <string.h>
 #include "system.h"
 #include "ws2812b.h"
 
 #define LED_PIN  7  // WiringPi pin number (GPIO 4 on RPi)
 
-static void gpio_setup(void) {
-    wiringPiSetup();
-    pinMode(LED_PIN, OUTPUT);
+void gpio_setup(void) {
+    setup_io();
+    setup_gpio_output(LED_PIN);
 }
 
 int main(void) {
