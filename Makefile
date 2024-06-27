@@ -1,4 +1,3 @@
-
 # Be silent per default, but 'make V=1' will show all compiler calls.
 ifneq ($(V),1)
 Q		:= @
@@ -7,35 +6,36 @@ endif
 
 SRC_DIR     = src
 INC_DIR     = inc
-OPENCM3_DIR = libopencm3
 
 BINARY = firmware
 
 ###############################################################################
 # Basic Device Setup
 
-LIBNAME			= opencm3_stm32f4
-DEFS				+= -DSTM32F4
-FP_FLAGS		?= -mfloat-abi=hard -mfpu=fpv4-sp-d16
-ARCH_FLAGS	= -mthumb -mcpu=cortex-m4 $(FP_FLAGS)
+# These are not required for Raspberry Pi
+# LIBNAME			= opencm3_stm32f4
+# DEFS				+= -DSTM32F4
+# FP_FLAGS		?= -mfloat-abi=hard -mfpu=fpv4-sp-d16
+# ARCH_FLAGS	= -mthumb -mcpu=cortex-m4 $(FP_FLAGS)
 
 ###############################################################################
 # Linkerscript
 
-LDSCRIPT = linkerscript.ld
-LDLIBS		+= -l$(LIBNAME)
-LDFLAGS		+= -L$(OPENCM3_DIR)/lib
+# Linker script and libraries not required for Raspberry Pi
+# LDSCRIPT = linkerscript.ld
+# LDLIBS		+= -l$(LIBNAME)
+# LDFLAGS		+= -L$(OPENCM3_DIR)/lib
 
 ###############################################################################
 # Includes
 
-DEFS		+= -I$(OPENCM3_DIR)/include
+# Include directories
 DEFS		+= -I$(INC_DIR)
 
 ###############################################################################
 # Executables
 
-PREFIX		?= arm-none-eabi-
+PREFIX		?= arm-linux-gnueabihf-
 
 CC		:= $(PREFIX)gcc
 CXX		:= $(PREFIX)g++
@@ -45,11 +45,9 @@ AS		:= $(PREFIX)as
 OBJCOPY		:= $(PREFIX)objcopy
 OBJDUMP		:= $(PREFIX)objdump
 GDB		:= $(PREFIX)gdb
-STFLASH		= $(shell which st-flash)
 OPT		:= -Os
 DEBUG		:= -ggdb3
 CSTD		?= -std=c99
-
 
 ###############################################################################
 # Source files
@@ -62,7 +60,7 @@ OBJS		+= $(SRC_DIR)/ws2812b.o
 # C flags
 
 TGT_CFLAGS	+= $(OPT) $(CSTD) $(DEBUG)
-TGT_CFLAGS	+= $(ARCH_FLAGS)
+# TGT_CFLAGS	+= $(ARCH_FLAGS)
 TGT_CFLAGS	+= -Wextra -Wshadow -Wimplicit-function-declaration
 TGT_CFLAGS	+= -Wredundant-decls -Wmissing-prototypes -Wstrict-prototypes
 TGT_CFLAGS	+= -fno-common -ffunction-sections -fdata-sections
@@ -71,7 +69,7 @@ TGT_CFLAGS	+= -fno-common -ffunction-sections -fdata-sections
 # C++ flags
 
 TGT_CXXFLAGS	+= $(OPT) $(CXXSTD) $(DEBUG)
-TGT_CXXFLAGS	+= $(ARCH_FLAGS)
+# TGT_CXXFLAGS	+= $(ARCH_FLAGS)
 TGT_CXXFLAGS	+= -Wextra -Wshadow -Wredundant-decls  -Weffc++
 TGT_CXXFLAGS	+= -fno-common -ffunction-sections -fdata-sections
 
@@ -86,8 +84,8 @@ TGT_CPPFLAGS	+= $(DEFS)
 # Linker flags
 
 TGT_LDFLAGS		+= --static -nostartfiles
-TGT_LDFLAGS		+= -T$(LDSCRIPT)
-TGT_LDFLAGS		+= $(ARCH_FLAGS) $(DEBUG)
+# TGT_LDFLAGS		+= -T$(LDSCRIPT)
+TGT_LDFLAGS		+= $(DEBUG)
 TGT_LDFLAGS		+= -Wl,-Map=$(*).map -Wl,--cref
 TGT_LDFLAGS		+= -Wl,--gc-sections
 ifeq ($(V),99)
@@ -119,12 +117,6 @@ GENERATED_BINARIES=$(BINARY).elf $(BINARY).bin $(BINARY).hex $(BINARY).srec $(BI
 images: $(BINARY).images
 flash: $(BINARY).flash
 
-$(OPENCM3_DIR)/lib/lib$(LIBNAME).a:
-ifeq (,$(wildcard $@))
-	$(warning $(LIBNAME).a not found, attempting to rebuild in $(OPENCM3_DIR))
-	$(MAKE) -C $(OPENCM3_DIR)
-endif
-
 # Define a helper macro for debugging make errors online
 # you can type "make print-OPENCM3_DIR" and it will show you
 # how that ended up being resolved by all of the included
@@ -151,7 +143,7 @@ print-%:
 	@#printf "  OBJDUMP $(*).list\n"
 	$(Q)$(OBJDUMP) -S $(*).elf > $(*).list
 
-%.elf %.map: $(OBJS) $(LDSCRIPT) $(OPENCM3_DIR)/lib/lib$(LIBNAME).a Makefile
+%.elf %.map: $(OBJS) Makefile
 	@#printf "  LD      $(*).elf\n"
 	$(Q)$(LD) $(TGT_LDFLAGS) $(LDFLAGS) $(OBJS) $(LDLIBS) -o $(*).elf
 
