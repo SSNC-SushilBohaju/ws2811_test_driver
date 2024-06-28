@@ -6,92 +6,132 @@
 #include <unistd.h>
 
 // Constants for memory-mapped I/O
-#define BCM2708_PERI_BASE        0x20000000
-#define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) // GPIO controller
-#define BLOCK_SIZE               (4 * 1024)
+#define BCM2708_PERI_BASE 0x20000000
+#define GPIO_BASE (BCM2708_PERI_BASE + 0x200000) // GPIO controller
+#define BLOCK_SIZE (4 * 1024)
 
-// GPIO setup
-#define GPIO_IN   0
-#define GPIO_OUT  1
-#define GPIO_SET  7
-#define GPIO_CLR  10
-#define GPIO_LEV  13
+/* GPIO setup macros. Always use INP_GPIO(x) before using OUT_GPIO(x)
+   or SET_GPIO_ALT(x,y) */
+#define INP_GPIO(g) *(ugpio + ((g) / 10)) &= ~(7 << (((g) % 10) * 3))
+#define OUT_GPIO(g) *(ugpio + ((g) / 10)) |= (1 << (((g) % 10) * 3))
+#define SET_GPIO_ALT(g, a)                                          \
+    *(ugpio + (((g) / 10))) |= (((a) <= 3 ? (a) + 4 : (a) == 4 ? 3  \
+                                                               : 2) \
+                                << (((g) % 10) * 3))
 
-volatile unsigned *gpio;
+#define GPIO_SET *(ugpio + 7)  /* sets   bits */
+#define GPIO_CLR *(ugpio + 10) /* clears bits */
+#define GPIO_GET *(ugpio + 13) /* gets   all GPIO input levels */
 
-// Function to set GPIO mode
-void set_gpio_mode(int pin, int mode) {
-    int fsel = pin / 10;
-    int shift = (pin % 10) * 3;
-    *(gpio + fsel) &= ~(0b111 << shift);
-    *(gpio + fsel) |= (mode << shift);
-}
+typedef enum
+{
+    Input = 0, /* GPIO is an Input */
+    Output     /* GPIO is an Output */
+} direction_t;
 
-// Function to write to a GPIO pin
-void write_gpio(int pin, int value) {
-    if (value)
-        *(gpio + GPIO_SET) = 1 << pin;
-    else
-        *(gpio + GPIO_CLR) = 1 << pin;
-}
+static volatile unsigned *ugpio;
 
-// Function to read a GPIO pin
-int read_gpio(int pin) {
-    return (*(gpio + GPIO_LEV) >> pin) & 1;
-}
+// Perform initialization to access GPIO registers
+static void gpio_init()
+{
+    int fd;
+    char *map;
 
-int main(int argc, char **argv) {
-    int mem_fd;
-    void *gpio_map;
-
-    // Open /dev/mem
-    if ((mem_fd = open("/dev/mem", O_RDWR | O_SYNC)) < 0) {
-        perror("open");
-        exit(EXIT_FAILURE);
+    fd = open("/dev/mem", O_RDWR | O_SYNC); /* Needs root access */
+    if (fd < 0)
+    {
+        perror("Opening /dev/mem");
+        exit(1);
     }
 
-    // Map GPIO
-    gpio_map = mmap(
-        NULL,             // Any address in our space will do
-        BLOCK_SIZE,       // Map length
-        PROT_READ | PROT_WRITE, // Enable reading & writing to mapped memory
-        MAP_SHARED,       // Shared with other processes
-        mem_fd,           // File to map
-        GPIO_BASE         // Offset to GPIO peripheral
+    map = (char *)mmap(
+        NULL,       /* Any address */
+        BLOCK_SIZE, /* # of bytes */
+        PROT_READ | PROT_WRITE,
+        MAP_SHARED, /* Shared */
+        fd,         /* /dev/mem */
+        GPIO_BASE   /* Offset to GPIO */
     );
 
-    if (gpio_map == MAP_FAILED) {
-        perror("mmap");
-        close(mem_fd);
-        exit(EXIT_FAILURE);
+    if ((long)map == -1L)
+    {
+        perror("mmap(/dev/mem)");
+        exit(1);
     }
 
-    // Always use volatile pointer!
-    gpio = (volatile unsigned *)gpio_map;
+    close(fd);
+    ugpio = (volatile unsigned *)map;
+}
 
-    // GPIO pin numbers for RGB LED (change these to your actual pins)
-    int red_pin = 17;
-    int green_pin = 27;
-    int blue_pin = 22;
+/*********************************************************************
+ * Configure GPIO as Input or Output
+ *********************************************************************/
+static inline void gpio_config(int gpio, direction_t output)
+{
+    INP_GPIO(gpio);
+    if (output)
+    {
+        OUT_GPIO(gpio);
+    }
+}
+
+/*********************************************************************
+ * Write a bit to the GPIO pin
+ *********************************************************************/
+static inline void gpio_write(int gpio, int bit)
+{
+    unsigned sel = 1 << gpio;
+
+    if (bit)
+    {
+        GPIO_SET = sel;
+    }
+    else
+    {
+        GPIO_CLR = sel;
+    }
+}
+
+/*********************************************************************
+ * Read a bit from a GPIO pin
+ *********************************************************************/
+static inline int gpio_read(int gpio)
+{
+    unsigned sel = 1 << gpio;
+
+    return (GPIO_GET & sel) ? 1 : 0;
+}
+
+// GPIO pin numbers for RGB LED (change these to your actual pins)
+int red_pin = 17;
+int green_pin = 27;
+int blue_pin = 22;
+
+// Function to set RGB color
+void set_rgb(int r, int g, int b)
+{
+    gpio_write(red_pin, r);
+    gpio_write(green_pin, g);
+    gpio_write(blue_pin, b);
+}
+
+int main(void)
+{
+
+    // Initialize GPIO
+    gpio_init();
 
     // Set the pins as outputs
-    set_gpio_mode(red_pin, GPIO_OUT);
-    set_gpio_mode(green_pin, GPIO_OUT);
-    set_gpio_mode(blue_pin, GPIO_OUT);
-
-    // Function to set RGB color
-    void set_rgb(int r, int g, int b) {
-        write_gpio(red_pin, r);
-        write_gpio(green_pin, g);
-        write_gpio(blue_pin, b);
-    }
+    gpio_config(red_pin, Output);
+    gpio_config(green_pin, Output);
+    gpio_config(blue_pin, Output);
 
     // Example: Set RGB to different colors
-    set_rgb(1, 0, 0); // Red
+    set_rgb(255, 0, 0); // Red
     sleep(1);
-    set_rgb(0, 1, 0); // Green
+    set_rgb(0, 255, 0); // Green
     sleep(1);
-    set_rgb(0, 0, 1); // Blue
+    set_rgb(0, 0, 255); // Blue
     sleep(1);
     set_rgb(1, 1, 0); // Yellow
     sleep(1);
@@ -104,10 +144,10 @@ int main(int argc, char **argv) {
     set_rgb(0, 0, 0); // Off
 
     // Unmap and close /dev/mem
-    if (munmap(gpio_map, BLOCK_SIZE) == -1) {
+    if (munmap((void *)ugpio, BLOCK_SIZE) == -1)
+    {
         perror("munmap");
     }
-    close(mem_fd);
 
     return 0;
 }
