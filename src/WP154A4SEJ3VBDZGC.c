@@ -1,153 +1,168 @@
+/*********************************************************************
+ * dht11.c : Direct GPIO access reading DHT11 humidity and temp sensor.
+ *********************************************************************/
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
 #include <fcntl.h>
-#include <sys/mman.h>
 #include <unistd.h>
+#include <errno.h>
+#include <setjmp.h>
+#include <sys/mman.h>
+#include <signal.h>
 
-// Constants for memory-mapped I/O
-#define BCM2708_PERI_BASE 0x20000000
-#define GPIO_BASE (BCM2708_PERI_BASE + 0x200000) // GPIO controller
-#define BLOCK_SIZE (4 * 1024)
+#include "gpio_io.c"   /* GPIO routines */
+#include "time_wait.c" /* timed_wait() */
 
-/* GPIO setup macros. Always use INP_GPIO(x) before using OUT_GPIO(x)
-   or SET_GPIO_ALT(x,y) */
-#define INP_GPIO(g) *(ugpio + ((g) / 10)) &= ~(7 << (((g) % 10) * 3))
-#define OUT_GPIO(g) *(ugpio + ((g) / 10)) |= (1 << (((g) % 10) * 3))
-#define SET_GPIO_ALT(g, a)                                          \
-    *(ugpio + (((g) / 10))) |= (((a) <= 3 ? (a) + 4 : (a) == 4 ? 3  \
-                                                               : 2) \
-                                << (((g) % 10) * 3))
+static const int gpio_red = 17;
+static const int gpio_green = 27;
+static const int gpio_blue = 22; /* GPIO pin */
+static jmp_buf timeout_exit;     /* longjmp on timeout */
+static int is_signaled = 0;      /* Exit program if signaled */
 
-#define GPIO_SET *(ugpio + 7)  /* sets   bits */
-#define GPIO_CLR *(ugpio + 10) /* clears bits */
-#define GPIO_GET *(ugpio + 13) /* gets   all GPIO input levels */
-
-typedef enum
+/*
+ * Signal handler to quit the program :
+ */
+static void
+sigint_handler(int signo)
 {
-    Input = 0, /* GPIO is an Input */
-    Output     /* GPIO is an Output */
-} direction_t;
-
-static volatile unsigned *ugpio;
-
-// Perform initialization to access GPIO registers
-static void gpio_init()
-{
-    int fd;
-    char *map;
-
-    fd = open("/dev/mem", O_RDWR | O_SYNC); /* Needs root access */
-    if (fd < 0)
-    {
-        perror("Opening /dev/mem");
-        exit(1);
-    }
-
-    map = (char *)mmap(
-        NULL,       /* Any address */
-        BLOCK_SIZE, /* # of bytes */
-        PROT_READ | PROT_WRITE,
-        MAP_SHARED, /* Shared */
-        fd,         /* /dev/mem */
-        GPIO_BASE   /* Offset to GPIO */
-    );
-
-    if ((long)map == -1L)
-    {
-        perror("mmap(/dev/mem)");
-        exit(1);
-    }
-
-    close(fd);
-    ugpio = (volatile unsigned *)map;
+    is_signaled = 1; /* Signal to exit program */
 }
 
-/*********************************************************************
- * Configure GPIO as Input or Output
- *********************************************************************/
-static inline void gpio_config(int gpio, direction_t output)
+// /*
+//  * Read the GPIO line status :
+//  */
+// static inline unsigned
+// gread(void) {
+// 	return gpio_read(gpio_dht11);
+// }
+
+/*
+ * Wait until the GPIO line goes low :
+ */
+static inline unsigned
+wait_until_low(void)
 {
-    INP_GPIO(gpio);
-    if (output)
-    {
-        OUT_GPIO(gpio);
-    }
+    const unsigned maxcount = 12000;
+    unsigned count = 0;
+
+    while (gread())
+        if (++count >= maxcount || is_signaled)
+            longjmp(timeout_exit, 1);
+    return count;
 }
 
-/*********************************************************************
- * Write a bit to the GPIO pin
- *********************************************************************/
-static inline void gpio_write(int gpio, int bit)
+/*
+ * Wait until the GPIO line goes high :
+ */
+static inline unsigned
+wait_until_high(void)
 {
-    unsigned sel = 1 << gpio;
+    unsigned count = 0;
 
-    if (bit)
-    {
-        GPIO_SET = sel;
-    }
-    else
-    {
-        GPIO_CLR = sel;
-    }
+    while (!gread())
+        ++count;
+    return count;
 }
 
-/*********************************************************************
- * Read a bit from a GPIO pin
- *********************************************************************/
-static inline int gpio_read(int gpio)
+/*
+ * Read 1 bit from the DHT11 sensor :
+ */
+static unsigned
+rbit(void)
 {
-    unsigned sel = 1 << gpio;
+    unsigned bias;
+    unsigned lo_count, hi_count;
 
-    return (GPIO_GET & sel) ? 1 : 0;
+    wait_until_low();
+    lo_count = wait_until_high();
+    hi_count = wait_until_low();
+
+    bias = lo_count / 3;
+
+    return hi_count + bias > lo_count ? 1 : 0;
 }
 
-// GPIO pin numbers for RGB LED (change these to your actual pins)
-int red_pin = 17;
-int green_pin = 27;
-int blue_pin = 22;
-
-// Function to set RGB color
-void set_rgb(int r, int g, int b)
+/*
+ * Read 1 byte from the DHT11 sensor :
+ */
+static unsigned
+rbyte(void)
 {
-    gpio_write(red_pin, r);
-    gpio_write(green_pin, g);
-    gpio_write(blue_pin, b);
+    unsigned x, u = 0;
+
+    for (x = 0; x < 8; ++x)
+        u = (u << 1) | rbit();
+    return u;
 }
 
-int main(void)
+/*
+ * Read 32 bits of data + 8 bit checksum from the
+ * DHT sensor. Returns relative humidity and
+ * temperature in Celcius when successful. The
+ * function returns zero if there was a checksum
+ * error.
+ */
+static int
+rsensor(int *relhumidity, int *celsius)
 {
+    unsigned char u[5], cs = 0, x;
 
-    // Initialize GPIO
-    gpio_init();
-
-    // Set the pins as outputs
-    gpio_config(red_pin, Output);
-    gpio_config(green_pin, Output);
-    gpio_config(blue_pin, Output);
-
-    // Example: Set RGB to different colors
-    set_rgb(255, 0, 0); // Red
-    sleep(1);
-    set_rgb(0, 255, 0); // Green
-    sleep(1);
-    set_rgb(0, 0, 255); // Blue
-    sleep(1);
-    set_rgb(1, 1, 0); // Yellow
-    sleep(1);
-    set_rgb(1, 0, 1); // Magenta
-    sleep(1);
-    set_rgb(0, 1, 1); // Cyan
-    sleep(1);
-    set_rgb(1, 1, 1); // White
-    sleep(1);
-    set_rgb(0, 0, 0); // Off
-
-    // Unmap and close /dev/mem
-    if (munmap((void *)ugpio, BLOCK_SIZE) == -1)
+    for (x = 0; x < 5; ++x)
     {
-        perror("munmap");
+        u[x] = rbyte();
+        if (x < 4)      /* Only checksum data.. */
+            cs += u[x]; /* Checksum */
     }
+
+    if ((cs & 0xFF) == u[4])
+    {
+        *relhumidity = (int)u[0];
+        *celsius = (int)u[2];
+        return 1;
+    }
+    return 0;
+}
+
+/*
+ * Main program :
+ */
+int main(int argc, char **argv)
+{
+    int relhumidity = 0, celsius = 0;
+    int errors = 0, timeouts = 0, readings = 0;
+    unsigned wait;
+
+    signal(SIGINT, sigint_handler); /* Trap on SIGINT */
+
+    gpio_init();                    /* Initialize GPIO access */
+    gpio_config(gpio_red,Output); /* Set GPIO pin as Input */
+    gpio_config(gpio_blue,Output);
+    gpio_config(gpio_green,Output);
+    for (;;)
+    {
+        if (setjmp(timeout_exit))
+        {                    /* Timeouts go here */
+            if (is_signaled) /* SIGINT? */
+                break;       /* Yes, then exit loop */
+            fprintf(stderr, "(Timeout # %d)\n", ++timeouts);
+            wait = 5;
+        }
+        else
+            wait = 2;
+
+        wait_until_high();      /* Wait GPIO line to go high */
+        timed_wait(wait, 0, 0); /* Pause for sensor ready */
+
+        gpio_write(gpio_red, 0);       /* Bring line low */
+        timed_wait(0, 30000, 0);         /* Hold low min of 18ms */
+        gpio_write(gpio_red, 1);       /* Bring line high */
 
     return 0;
 }
+
+/*********************************************************************
+ * End dht11.c
+ * Mastering the Raspberry Pi - ISBN13: 978-1-484201-82-4
+ * This source code is placed into the public domain.
+ *********************************************************************/
