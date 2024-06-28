@@ -1,7 +1,7 @@
 
 #include <string.h>
-#include "system.h"
-#include "ws2812b.h"
+#include "../inc/core/system.h"
+#include "../inc/ws2812b.h"
 
 #define LED_PIN  7  // WiringPi pin number (GPIO 4 on RPi)
 

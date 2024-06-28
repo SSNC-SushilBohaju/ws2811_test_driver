@@ -4,8 +4,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 
-#include "ws2812b.h"
-#include <wiringPi.h>
+#include "../inc/ws2812b.h"
 
 #define BCM2708_PERI_BASE        0x20000000
 #define GPIO_BASE                (BCM2708_PERI_BASE + 0x200000) /* GPIO controller */
@@ -16,6 +15,7 @@
 #define GPIO_SET *(gpio + 7)  // sets bits which are 1 ignores bits which are 0
 #define GPIO_CLR *(gpio + 10) // clears bits which are 1 ignores bits which are 0
 
+volatile unsigned *gpio; // Define gpio as a global variable
 
 void setup_io() {
     int mem_fd;
